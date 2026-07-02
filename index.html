@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web GIS Kawasan Industri - Fixed Floating Label Official</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet-measure@3.1.0/dist/leaflet-measure.css" />
+
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            z-index: 1;
+        }
+
+        /* Batang Status Koordinat Dinamis */
+        #coordinate-bar {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 6px 12px;
+            border-radius: 4px;
+            box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+            font-size: 12px;
+            color: #333;
+            z-index: 1000;
+            font-weight: bold;
+            border: 1px solid #ccc;
+        }
+
+        /* Modifikasi Kontrol Layer Bawaan Leaflet Menjadi Panel Floating Terpadu */
+        .leaflet-control-layers {
+            background: white !important;
+            padding: 12px !important;
+            border-radius: 8px !important;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3) !important;
+            max-width: 280px;
+            border: none !important;
+        }
+
+        /* Bagian Khusus Manajemen File SHP di dalam Panel Floating */
+        .shp-upload-section {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px dashed #ccc;
+        }
+
+        .shp-upload-section h4 {
+            margin: 0 0 6px 0;
+            font-size: 12px;
+            color: #444;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .upload-btn-wrapper {
+            position: relative;
+            overflow: hidden;
+            display: inline-block;
+            width: 100%;
+        }
+
+        .btn {
+            border: 1px solid #0078A8;
+            color: white;
+            background-color: #0078A8;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
+            width: 100%;
+            cursor: pointer;
+            text-align: center;
+        }
+
+        .upload-btn-wrapper input[type=file] {
+            font-size: 100px;
+            position: absolute;
+            left: 0;
+            top: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        #file-info {
+            font-size: 10px;
+            color: #666;
+            margin-top: 4px;
+            line-height: 1.3;
+        }
+
+        /* Styling Label Kustom: Kotak Kuning Terang Diperkecil */
+        .custom-site-label {
+            background: #ffff00 !important;
+            color: #000000 !important;
+            font-weight: bold !important;
+            font-size: 10px !important;
+            padding: 2px 6px !important;
+            border: 1px solid #cc9900 !important;
+            border-radius: 3px !important;
+            box-shadow: 1px 1px 4px rgba(0,0,0,0.4) !important;
+            white-space: nowrap;
+        }
+        
+        /* Menghilangkan panah bawaan tooltip Leaflet */
+        .custom-site-label::before {
+            border: none !important;
+        }
+
+        /* Desain Tombol Map di kiri atas (Reset & GPS) */
+        .leaflet-custom-btn {
+            background-color: white;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 15px;
+            cursor: pointer;
+            color: #333;
+            text-decoration: none;
+        }
+        .leaflet-custom-btn:hover {
+            background-color: #f4f4f4;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+
+    <div id="coordinate-bar">
+        Koordinat: <span id="latlng-val">Arahkan kursor ke peta...</span>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet-measure@3.1.0/dist/leaflet-measure.js"></script>
+    <script src="https://unpkg.com/shpjs@latest/dist/shp.js"></script>
+
+    <script>
+        // --- 1. DATA GEOJSON GEOGRAFIS ASLI (WGS84) ---
+        var geojsonData = {
+          "type": "FeatureCollection",
+          "name": "Site Building IKK",
+          "crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+          "features": [
+            { "type": "Feature", "properties": { "id": null, "Nama": "Packaging Warehouse", "Luas_m2": null, "Keterangan": null }, "geometry": { "type": "MultiPolygon", "coordinates": [ [ [ [ 107.329591360550893, -6.422619865942181 ], [ 107.330844692518752, -6.422619532149172 ], [ 107.330852897775074, -6.422848752941778 ], [ 107.329588822607406, -6.422849135862852 ], [ 107.329591360550893, -6.422619865942181 ] ] ] ] } },
+            { "type": "Feature", "properties": { "id": null, "Nama": "CMP Building", "Luas_m2": null, "Keterangan": null }, "geometry": { "type": "MultiPolygon", "coordinates": [ [ [ [ 107.326490333792019, -6.423321589133748 ], [ 107.327063230691238, -6.423307559133869 ], [ 107.327031109033753, -6.424635678401314 ], [ 107.326499318131336, -6.424632140645051 ], [ 107.326490333792019, -6.423321589133748 ] ] ] ] } },
+            { "type": "Feature", "properties": { "id": null, "Nama": "PM1 Auto Warehouse Parking", "Luas_m2": null, "Keterangan": null }, "geometry": { "type": "MultiPolygon", "coordinates": [ [ [ [ 107.326506307328906, -6.424849645851457 ], [ 107.327027303038662, -6.424851408892415 ], [ 107.329761596774676, -6.426046033100523 ], [ 107.326486847259468, -6.426038477028169 ], [ 107.326506307328906, -6.424849645851457 ] ] ] ] } },
+            { "type": "Feature", "properties": { "id": null, "Nama": "BU17 West Side Loading Dock", "Luas_m2": null, "Keterangan": null }, "geometry": { "type": "MultiPolygon", "coordinates": [ [ [ [ 107.328760747260958, -6.428953329697013 ], [ 107.328882498761345, -6.428952775098389 ], [ 107.328899679098171, -6.430759898009331 ], [ 107.328781516263987, -6.430762227495629 ], [ 107.328760747260958, -6.428953329697013 ] ] ] ] } },
+            { "type": "Feature", "properties": { "id": null, "Nama": "Bu17 PM3 Soil", "Luas_m2": null, "Keterangan": null }, "geometry": { "type": "MultiPolygon", "coordinates": [ [ [ [ 107.330700299588187, -6.431014978800257 ], [ 107.331316236789391, -6.431015751736954 ], [ 107.331331111189251, -6.431922370213197 ], [ 107.330706859346617, -6.431915444583944 ], [ 107.330700299588187, -6.431014978800257 ] ] ] ] } },
+            { "type": "Feature", "properties": { "id": null, "Nama": "Main Gate", "Luas_m2": null, "Keterangan": null }, "geometry": { "type": "MultiPolygon", "coordinates": [ [ [ [ 107.347391993424177, -6.432590659779261 ], [ 107.347732313627993, -6.432594191630713 ], [ 107.347738275529457, -6.433239247656641 ], [ 107.347401505327245, -6.433235732152204 ], [ 107.347391993424177, -6.432590659779261 ] ] ] ] } },
+            { "type": "Feature", "properties": { "id": null, "Nama": "Gas Storage & Waste Control", "Luas_m2": null, "Keterangan": null }, "geometry": { "type": "MultiPolygon", "coordinates": [ [ [ [ 107.347403482590393, -6.425514695955601 ], [ 107.347919327914445, -6.425521742080068 ], [ 107.347926210086817, -6.426166795413346 ], [ 107.347391515229562, -6.426159733479974 ], [ 107.347403482590393, -6.425514695955601 ] ] ] ] } }
+          ]
+        };
+
+        // --- 2. INISIALISASI MAP UTAMA ---
+        var map = L.map('map', { zoomControl: true });
+
+        // --- 3. BASEMAPS SETUP ---
+        var osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
+        var googleSatellite = L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', { maxZoom: 20 });
+        var googleHybrid = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', { maxZoom: 20 });
+        
+        googleHybrid.addTo(map);
+
+        // --- 4. PEMBUATAN LAYER POLIGON UTAMA ---
+        var keySiteLayer = L.geoJSON(geojsonData, {
+            style: function(feature) {
+                return {
+                    color: "#e60000",
+                    weight: 3,
+                    dashArray: "6, 6",
+                    opacity: 1,
+                    fillColor: "#ff4d4d",
+                    fillOpacity: 0.15
+                };
+            },
+            onEachFeature: function(feature, layer) {
+                if (feature.properties && feature.properties.Nama) {
+                    var popupHtml = "<b>Detail Fasilitas:</b><br><hr>";
+                    popupHtml += "Nama Objek: <b>" + feature.properties.Nama + "</b><br>";
+                    layer.bindPopup(popupHtml);
+                }
+            }
+        }).addTo(map);
+
+        // --- 5. PEMBUATAN LAYER LABEL MURNI DARI GEOMETRI DINAMIS (ANTI-CRASH) ---
+        var labelLayer = L.geoJSON(geojsonData, {
+            style: function() {
+                return { stroke: false, fill: false, opacity: 0, fillOpacity: 0 }; // Poligon pembungkus tidak terlihat
+            },
+            onEachFeature: function(feature, layer) {
+                if (feature.properties && feature.properties.Nama) {
+                    // Ikat label kuning langsung pada layer pendukung tanpa memanggil hitungan matematika luar
+                    layer.bindTooltip(feature.properties.Nama, {
+                        permanent: true,
+                        direction: 'center',
+                        className: 'custom-site-label'
+                    });
+                }
+            }
+        }).addTo(map); // default menyala di awal
+
+        // Ambil orientasi kamera otomatis ke koordinat pabrik Anda
+        var originalBounds = keySiteLayer.getBounds();
+        map.fitBounds(originalBounds);
+
+
+        // --- 6. UI MANAGEMENT PANEL FLOATING RESMI ---
+        var baseMaps = {
+            "Google Hybrid": googleHybrid,
+            "Google Satellite": googleSatellite,
+            "OpenStreetMap": osm
+        };
+
+        var uploadedLayers = L.layerGroup().addTo(map);
+        
+        // Daftarkan kedua layer secara terpisah demi fungsionalitas On/Off resmi
+        var overlayMaps = {
+            "Batas Bangunan (Poligon)": keySiteLayer,
+            "Label Nama Fasilitas": labelLayer, 
+            "Layer SHP Tambahan": uploadedLayers
+        };
+
+        var layerControl = L.control.layers(baseMaps, overlayMaps, { collapsed: false }).addTo(map);
+
+        // Sisipkan elemen pemicu upload SHP Zip di bawah panel floating bawaan Leaflet
+        var layerControlContainer = layerControl.getContainer();
+        var uploadSectionHtml = `
+            <div class="shp-upload-section">
+                <h4>Upload Eksternal</h4>
+                <div class="upload-btn-wrapper">
+                    <button class="btn">Pilih File .ZIP (SHP)</button>
+                    <input type="file" id="shp-file" accept=".zip" />
+                </div>
+                <div id="file-info">Kompresi .zip (berisi .shp, .shx, .dbf, .prj)</div>
+            </div>
+        `;
+        layerControlContainer.insertAdjacentHTML('beforeend', uploadSectionHtml);
+
+
+        // --- 7. TOMBOL RESET VIEW (🏠) DI KIRI ATAS ---
+        L.Control.ResetView = L.Control.extend({
+            onAdd: function(map) {
+                var container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+                var button = L.DomUtil.create('a', 'leaflet-custom-btn', container);
+                button.innerHTML = '🏠';
+                button.title = 'Kembali ke View Utama';
+
+                L.DomEvent.on(button, 'click', function(e) {
+                    L.DomEvent.stopPropagation(e);
+                    map.fitBounds(originalBounds);
+                });
+                return container;
+            }
+        });
+        map.addControl(new L.Control.ResetView({ position: 'topleft' }));
+
+
+        // --- 8. TOMBOL GEOLOCATE GPS (📍) DI KIRI ATAS ---
+        L.Control.Geolocate = L.Control.extend({
+            onAdd: function(map) {
+                var container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+                var button = L.DomUtil.create('a', 'leaflet-custom-btn', container);
+                button.innerHTML = '📍';
+                button.title = 'Cari Lokasi Saya';
+
+                L.DomEvent.on(button, 'click', function(e) {
+                    L.DomEvent.stopPropagation(e);
+                    map.locate({setView: true, maxZoom: 17});
+                });
+                return container;
+            }
+        });
+        map.addControl(new L.Control.Geolocate({ position: 'topleft' }));
+
+        map.on('locationfound', function(e) {
+            L.marker(e.latlng).addTo(map).bindPopup("Anda berada di radius ini").openPopup();
+        });
+
+
+        // --- 9. STATUS BAR KOORDINAT DINAMIS (MOUSEMOVE) ---
+        var coordVal = document.getElementById('latlng-val');
+        map.on('mousemove', function(e) {
+            coordVal.innerHTML = "Lat: " + e.latlng.lat.toFixed(6) + " | Lng: " + e.latlng.lng.toFixed(6);
+        });
+
+
+        // --- 10. MEASURE CONTROL (ALAT UKUR) ---
+        var measureControl = new L.Control.Measure({
+            position: 'topright',
+            primaryLengthUnit: 'meters',
+            secondaryLengthUnit: 'kilometers',
+            primaryAreaUnit: 'sqmeters',
+            secondaryAreaUnit: 'hectares',
+            activeColor: '#00ffff',
+            completedColor: '#00ff00',
+            localization: 'id'
+        });
+        measureControl.addTo(map);
+
+
+        // --- 11. DRIVER PEMBACA ZIP SHAPEFILE ---
+        document.getElementById('shp-file').addEventListener('change', function(e) {
+            var file = e.target.files[0];
+            if (!file) return;
+
+            document.getElementById('file-info').innerHTML = "Memproses berkas: <b>" + file.name + "</b>";
+            var reader = new FileReader();
+            reader.onload = function(err) {
+                if (err.target.result) {
+                    var shpBuffer = err.target.result;
+                    var parsePromise;
+                    
+                    if (typeof shp === 'function') {
+                        parsePromise = shp(shpBuffer);
+                    } else if (window.shp && typeof window.shp.parseZip === 'function') {
+                        parsePromise = window.shp.parseZip(shpBuffer);
+                    } else if (window.shp && typeof window.shp === 'function') {
+                        parsePromise = window.shp(shpBuffer);
+                    } else {
+                        alert("Pustaka pembaca SHP tidak terpasang dengan benar di browser.");
+                        return;
+                    }
+
+                    parsePromise.then(function(geojson) {
+                        uploadedLayers.clearLayers(); 
+                        var geojsonLayer = L.geoJSON(geojson, {
+                            style: { color: "#3388ff", weight: 2, fillOpacity: 0.4 },
+                            onEachFeature: function(feature, layer) {
+                                if (feature.properties) {
+                                    var t = "<table style='font-size:11px;'>";
+                                    for (var k in feature.properties) t += "<tr><td><b>"+k+"</b></td><td>"+feature.properties[k]+"</td></tr>";
+                                    layer.bindPopup(t+"</table>");
+                                }
+                            }
+                        });
+                        uploadedLayers.addLayer(geojsonLayer);
+                        map.fitBounds(geojsonLayer.getBounds());
+                        document.getElementById('file-info').innerHTML = "Berhasil memuat: <b>" + file.name + "</b>";
+                    }).catch(function(x){
+                        console.error(x);
+                        alert("Gagal membaca berkas Zip Shapefile. Pastikan berkas .prj di dalam zip bertipe WGS84.");
+                        document.getElementById('file-info').innerHTML = "Gagal memproses file.";
+                    });
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        });
+    </script>
+</body>
+</html>

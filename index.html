@@ -6,7 +6,6 @@
     <title>Web GIS Kawasan Industri - Fixed Geografis</title>
 
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet-measure@3.1.0/dist/leaflet-measure.css" />
 
     <style>
         html, body {
@@ -140,7 +139,7 @@
             background-color: #0078A8;
             padding: 5px 10px;
             border-radius: 4px;
-            font-size: 11px;
+            font-size: 10px;
             font-weight: bold;
             width: 100%;
             cursor: pointer;
@@ -157,7 +156,7 @@
         }
 
         #file-info {
-            font-size: 10px;
+            font-size: 9px;
             color: #666;
             margin-top: 4px;
             line-height: 1.3;
@@ -171,6 +170,24 @@
             font-size: 10px !important;
             padding: 2px 6px !important;
             border: 1px solid #cc9900 !important;
+            border-radius: 3px !important;
+            box-shadow: 1px 1px 4px rgba(0,0,0,0.4) !important;
+            white-space: nowrap !important;
+            width: auto !important;
+            height: auto !important;
+            display: inline-block !important;
+            transform: translate(-50%, -50%);
+            margin: 0 !important;
+        }
+
+        /* Label Plant Package — biru, beda dari label kuning Key Site */
+        .plant-label {
+            background: #e3f2fd !important;
+            color: #0d47a1 !important;
+            font-weight: bold !important;
+            font-size: 10px !important;
+            padding: 2px 6px !important;
+            border: 1px solid #1565c0 !important;
             border-radius: 3px !important;
             box-shadow: 1px 1px 4px rgba(0,0,0,0.4) !important;
             white-space: nowrap !important;
@@ -198,15 +215,37 @@
             background-color: #f4f4f4;
         }
 
-        /* Satuan default plugin leaflet-measure sudah meter/km, tinggal rapikan posisinya */
-        .leaflet-control-measure {
-            margin-top: 8px !important;
+        /* Cursor presisi (crosshair) saat mode ukur jarak/luas aktif */
+        #map.measuring-active,
+        #map.measuring-active .leaflet-container,
+        #map.measuring-active .leaflet-interactive {
+            cursor: crosshair !important;
         }
+
+        /* Tombol Ukur Jarak/Luas — mengikuti gaya kontrol Leaflet bawaan */
+        .measure-ctrl-btn {
+            width: 30px; height: 30px;
+            display: flex; align-items: center; justify-content: center;
+            background: white; font-size: 15px; cursor: pointer;
+            text-decoration: none; color: #333;
+        }
+        .measure-ctrl-btn:hover { background: #f4f4f4; }
+        .measure-ctrl-btn.active-mode { background: #ffe0b2; }
     </style>
 </head>
 <body>
 
     <div id="map"></div>
+
+    <!-- Panel Hasil Ukur (alat ukur kustom, menggantikan plugin leaflet-measure yang bermasalah) -->
+    <div id="measure-panel" style="display:none; position:absolute; top:12px; left:56px; z-index:1100; background:white; border-radius:8px; box-shadow:0 2px 10px rgba(0,0,0,.35); padding:12px; width:220px; font-size:12px; color:#333;">
+        <div id="measure-title" style="font-weight:700; margin-bottom:6px; font-size:13px;">📏 Ukur Jarak</div>
+        <div id="measure-result" style="margin-bottom:10px; line-height:1.5;">Klik di peta untuk mulai menandai titik.</div>
+        <div style="display:flex; gap:6px;">
+            <button onclick="cancelMeasure()" style="flex:1;padding:6px;border:1px solid #999;border-radius:4px;background:#f5f5f5;cursor:pointer;font-size:12px;">Batal</button>
+            <button onclick="finishMeasure()" style="flex:1;padding:6px;border:none;border-radius:4px;background:#0078A8;color:white;cursor:pointer;font-size:12px;">Selesai</button>
+        </div>
+    </div>
 
     <div id="coordinate-bar">
         Koordinat: <span id="latlng-val">Arahkan kursor ke peta...</span>
@@ -245,6 +284,18 @@
                 <label for="overlay-labels">Label Nama Site</label>
             </div>
             <div class="panel-row">
+                <input type="checkbox" id="overlay-batas-plant" checked>
+                <label for="overlay-batas-plant">Batas Plant Package</label>
+            </div>
+            <div class="panel-row">
+                <input type="checkbox" id="overlay-plant-package" checked>
+                <label for="overlay-plant-package">Plant Package</label>
+            </div>
+            <div class="panel-row">
+                <input type="checkbox" id="overlay-plant-labels" checked>
+                <label for="overlay-plant-labels">Label Plant Package</label>
+            </div>
+            <div class="panel-row">
                 <input type="checkbox" id="overlay-shp" checked>
                 <label for="overlay-shp">Layer SHP Tambahan</label>
             </div>
@@ -261,12 +312,14 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/leaflet-measure@3.1.0/dist/leaflet-measure.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/shpjs/4.0.2/shp.min.js"></script>
 
     <script>
         // --- 1. DATA GEOJSON GEOGRAFIS ASLI (Langsung dari file Site Building IKK.geojson Anda) ---
         var geojsonData = {"type": "FeatureCollection", "name": "Key Site Building IKK", "crs": {"type": "name", "properties": {"name": "urn:ogc:def:crs:OGC:1.3:CRS84"}}, "features": [{"type": "Feature", "properties": {"id": null, "Nama": "Packaging Warehouse", "Luas_m2": null, "Keterangan": null}, "geometry": {"type": "MultiPolygon", "coordinates": [[[[107.32959136055089, -6.422619865942181], [107.33084469251875, -6.422619532149172], [107.33085289777507, -6.422848752941778], [107.3295888226074, -6.422849135862852], [107.32959136055089, -6.422619865942181]]]]}}, {"type": "Feature", "properties": {"id": null, "Nama": "CMP Building", "Luas_m2": null, "Keterangan": null}, "geometry": {"type": "MultiPolygon", "coordinates": [[[[107.32648635916159, -6.423339678742218], [107.32705936707404, -6.423351401805104], [107.32703381444487, -6.424820206977864], [107.32650206665302, -6.424826207680951], [107.32648635916159, -6.423339678742218]]]]}}, {"type": "Feature", "properties": {"id": null, "Nama": "PM1 Auto Warehouse Parking", "Luas_m2": null, "Keterangan": null}, "geometry": {"type": "MultiPolygon", "coordinates": [[[[107.32650941567731, -6.424867369207731], [107.32703042894337, -6.424863208395309], [107.32706091821927, -6.426055931641273], [107.32649510164413, -6.426051341288093], [107.32650941567731, -6.424867369207731]]]]}}, {"type": "Feature", "properties": {"id": null, "Nama": "BU17 West Side Loading Dock", "Luas_m2": null, "Keterangan": null}, "geometry": {"type": "MultiPolygon", "coordinates": [[[[107.32876074726096, -6.428953329697013], [107.32888249876135, -6.428952775098389], [107.32889967909817, -6.430759898009331], [107.32878151626399, -6.430762227495629], [107.32876074726096, -6.428953329697013]]]]}}, {"type": "Feature", "properties": {"id": null, "Nama": "Bu17 PM3 Soil", "Luas_m2": null, "Keterangan": null}, "geometry": {"type": "MultiPolygon", "coordinates": [[[[107.33070029958819, -6.431014978800257], [107.33131623678939, -6.431015751736954], [107.33133111118914, -6.431921969512286], [107.33070805999809, -6.431931975903644], [107.33070029958819, -6.431014978800257]]]]}}, {"type": "Feature", "properties": {"id": null, "Nama": "Gate Canopy", "Luas_m2": null, "Keterangan": null}, "geometry": {"type": "MultiPolygon", "coordinates": [[[[107.34739444792696, -6.432482468354157], [107.34773461726687, -6.432477323382142], [107.34774115894281, -6.433122074084197], [107.34740453719097, -6.433120038682857], [107.34739444792696, -6.432482468354157]]]]}}, {"type": "Feature", "properties": {"id": null, "Nama": "Gate Canopy & Waste Control Room", "Luas_m2": null, "Keterangan": null}, "geometry": {"type": "MultiPolygon", "coordinates": [[[[107.35054278147798, -6.425405159327753], [107.3510583902757, -6.425395625521897], [107.35109716043156, -6.426040226710868], [107.35056366320283, -6.426053425108393], [107.35054278147798, -6.425405159327753]]]]}}]};
+
+        var gj_plant_package = {"type": "FeatureCollection", "name": "Plant Package", "crs": {"type": "name", "properties": {"name": "urn:ogc:def:crs:OGC:1.3:CRS84"}}, "features": [{"type": "Feature", "properties": {"id": null, "Nama": "Apartment Building", "Luas": null}, "geometry": {"type": "MultiPolygon", "coordinates": [[[[107.35595110155295, -6.44852259281726], [107.35655511008521, -6.4489673176258755], [107.3564532098701, -6.449104404951127], [107.35584990755447, -6.448655700114502], [107.35595110155295, -6.44852259281726]]]]}}, {"type": "Feature", "properties": {"id": null, "Nama": "Utility Building", "Luas": null}, "geometry": {"type": "MultiPolygon", "coordinates": [[[[107.35640380356176, -6.449205637136432], [107.3563434176209, -6.449286873632144], [107.35604901905229, -6.44906791226192], [107.35610940503953, -6.448986675792841], [107.35640380356176, -6.449205637136432]]]]}}, {"type": "Feature", "properties": {"id": null, "Nama": "Sports Center Building", "Luas": null}, "geometry": {"type": "MultiPolygon", "coordinates": [[[[107.35595691658686, -6.449063053041061], [107.355853223984, -6.448985931844877], [107.35593409733204, -6.4488771324304475], [107.35600443425508, -6.448929445405207], [107.35598152014339, -6.4489602719117425], [107.35601487580412, -6.448985080122448], [107.35595691658686, -6.449063053041061]]]]}}, {"type": "Feature", "properties": {"id": null, "Nama": "Swimming Pool", "Luas": null}, "geometry": {"type": "MultiPolygon", "coordinates": [[[[107.35586505535083, -6.4489245703936735], [107.35579496510167, -6.449018863212084], [107.3556209356132, -6.448889428940829], [107.35569102589419, -6.448795136140723], [107.35586505535083, -6.4489245703936735]]]]}}, {"type": "Feature", "properties": {"id": null, "Nama": "Car Parking", "Luas": null}, "geometry": {"type": "MultiPolygon", "coordinates": [[[[107.35664113873317, -6.448895493740226], [107.35606056367031, -6.4484688471448806], [107.35605879029148, -6.4484493386264425], [107.35628929670821, -6.4481346096313885], [107.35687934781251, -6.448574683771378], [107.35664113873317, -6.448895493740226]]]]}}, {"type": "Feature", "properties": {"id": null, "Nama": "Road and Drainage", "Luas": null}, "geometry": {"type": "MultiPolygon", "coordinates": [[[[107.35646667069058, -6.447694983794866], [107.35649561726638, -6.447714704899637], [107.35580226385743, -6.448654120806921], [107.35639180799134, -6.449093090407866], [107.35635999785461, -6.449135884861865], [107.35573575677591, -6.448671606701912], [107.35646667069058, -6.447694983794866]]]]}}, {"type": "Feature", "properties": {"id": null, "Nama": "Fencing", "Luas": null}, "geometry": {"type": "MultiPolygon", "coordinates": [[[[107.35652816658212, -6.447811687690496], [107.35653496466293, -6.447818467580007], [107.35634310488427, -6.448084194813654], [107.35696423864195, -6.448554410142839], [107.3569577298126, -6.448563107053498], [107.3563294599487, -6.448092635959336], [107.35632609062348, -6.448087532050294], [107.35632605799215, -6.448083383702773], [107.35652816658212, -6.447811687690496]]]]}}]};
+        var gj_batas_plant_package = {"type": "FeatureCollection", "name": "Batas Plant Package", "crs": {"type": "name", "properties": {"name": "urn:ogc:def:crs:OGC:1.3:CRS84"}}, "features": [{"type": "Feature", "properties": {"id": null, "Nama": "Aoi"}, "geometry": {"type": "MultiPolygon", "coordinates": [[[[107.35643958283889, -6.447676568439137], [107.35661325932232, -6.447806475503003], [107.35639757819507, -6.4480949913383565], [107.3569959122275, -6.448544308279679], [107.35630901323336, -6.4494631705495395], [107.35592861192997, -6.4494286029684655], [107.35597018553366, -6.449252411906853], [107.35579408553426, -6.449200111907699], [107.35569018553586, -6.449468311907625], [107.35526860444865, -6.449242977257691], [107.35643958283889, -6.447676568439137]]]]}}]};
 
         // --- 2. INISIALISASI MAP UTAMA ---
         var map = L.map('map', { zoomControl: true });
@@ -319,9 +372,69 @@
         });
         labelLayer.addTo(map);
 
-        // Otomatis fokus kamera langsung ke bounds data spasial Anda
-        var originalBounds = keySiteLayer.getBounds();
-        map.fitBounds(originalBounds);
+
+        // --- 4c. LAYER BATAS PLANT PACKAGE (AOI, GARIS PUTUS-PUTUS UNGU) ---
+        var batasPlantLayer = L.geoJSON(gj_batas_plant_package, {
+            style: function() {
+                return {
+                    color: "#6a1b9a",
+                    weight: 3,
+                    dashArray: "10, 6",
+                    fillColor: "#6a1b9a",
+                    fillOpacity: 0.05,
+                    opacity: 0.9
+                };
+            },
+            onEachFeature: function(feature, layer) {
+                if (feature.properties && feature.properties.Nama) {
+                    layer.bindPopup("<b>Area:</b><br><hr>Nama: <b>" + feature.properties.Nama + "</b>");
+                }
+            }
+        }).addTo(map);
+
+
+        // --- 4d. LAYER PLANT PACKAGE (POLIGON BIRU) ---
+        var plantPackageLayer = L.geoJSON(gj_plant_package, {
+            style: function() {
+                return {
+                    color: "#1565c0",
+                    weight: 2,
+                    fillColor: "#42a5f5",
+                    fillOpacity: 0.25
+                };
+            },
+            onEachFeature: function(feature, layer) {
+                if (feature.properties && feature.properties.Nama) {
+                    var popupHtml = "<b>Detail Plant Package:</b><br><hr>";
+                    popupHtml += "Nama Objek: <b>" + feature.properties.Nama + "</b><br>";
+                    layer.bindPopup(popupHtml);
+                }
+            }
+        }).addTo(map);
+
+        // --- 4e. LABEL PLANT PACKAGE (TERPISAH, BISA ON/OFF SENDIRI) ---
+        var plantLabelLayer = L.layerGroup();
+        gj_plant_package.features.forEach(function(feature) {
+            if (feature.properties && feature.properties.Nama) {
+                var tempLayer = L.geoJSON(feature);
+                var center = tempLayer.getBounds().getCenter();
+                var labelMarker = L.marker(center, {
+                    icon: L.divIcon({
+                        className: 'plant-label',
+                        html: feature.properties.Nama,
+                        iconSize: [0, 0]
+                    }),
+                    interactive: false,
+                    keyboard: false
+                });
+                plantLabelLayer.addLayer(labelMarker);
+            }
+        });
+        plantLabelLayer.addTo(map);
+
+        // Otomatis fokus kamera ke Batas Plant Package sebagai VIEW UTAMA
+        var originalBounds = batasPlantLayer.getBounds();
+        map.fitBounds(originalBounds, { padding: [40, 40] });
 
 
         // --- 5. LAYER SHP TAMBAHAN (DARI UPLOAD) ---
@@ -347,6 +460,15 @@
         });
         document.getElementById('overlay-labels').addEventListener('change', function(e) {
             if (e.target.checked) { labelLayer.addTo(map); } else { map.removeLayer(labelLayer); }
+        });
+        document.getElementById('overlay-batas-plant').addEventListener('change', function(e) {
+            if (e.target.checked) { batasPlantLayer.addTo(map); } else { map.removeLayer(batasPlantLayer); }
+        });
+        document.getElementById('overlay-plant-package').addEventListener('change', function(e) {
+            if (e.target.checked) { plantPackageLayer.addTo(map); } else { map.removeLayer(plantPackageLayer); }
+        });
+        document.getElementById('overlay-plant-labels').addEventListener('change', function(e) {
+            if (e.target.checked) { plantLabelLayer.addTo(map); } else { map.removeLayer(plantLabelLayer); }
         });
         document.getElementById('overlay-shp').addEventListener('change', function(e) {
             if (e.target.checked) { uploadedLayers.addTo(map); } else { map.removeLayer(uploadedLayers); }
@@ -468,17 +590,157 @@
         });
 
 
-        // --- 8. ALAT UKUR (MEASUREMENT) DALAM SATUAN METER / KM ---
-        var measureControl = new L.Control.Measure({
-            position: 'topleft',
-            primaryLengthUnit: 'meters',
-            secondaryLengthUnit: 'kilometers',
-            primaryAreaUnit: 'sqmeters',
-            secondaryAreaUnit: 'hectares',
-            activeColor: '#ff6600',
-            completedColor: '#0078A8'
-        });
-        measureControl.addTo(map);
+        // --- 8. ALAT UKUR JARAK & LUAS (CUSTOM, BERBASIS KLIK-PETA NATIVE LEAFLET) ---
+        // Dibuat sendiri (bukan plugin pihak ketiga) karena plugin leaflet-measure
+        // terbukti punya bug: titik yang tersimpan sering meleset dari posisi klik.
+        // Klik peta native (map.on('click')) di Leaflet selalu akurat — dibuktikan
+        // oleh popup info pada layer lain yang selalu tepat di posisi yang diklik.
+        (function() {
+            var mode = null;        // 'distance' | 'area' | null
+            var points = [];
+            var tempShape = null;
+            var vertexMarkers = [];
+
+            function toRad(d) { return d * Math.PI / 180; }
+
+            // Formula luas geodesik standar (dipakai juga di internal Leaflet.Draw)
+            function geodesicArea(latlngs) {
+                var area = 0, n = latlngs.length;
+                if (n > 2) {
+                    for (var i = 0; i < n; i++) {
+                        var p1 = latlngs[i], p2 = latlngs[(i + 1) % n];
+                        area += (toRad(p2.lng) - toRad(p1.lng)) * (2 + Math.sin(toRad(p1.lat)) + Math.sin(toRad(p2.lat)));
+                    }
+                    area = area * 6378137.0 * 6378137.0 / 2.0;
+                }
+                return Math.abs(area);
+            }
+
+            function totalDistance(latlngs) {
+                var d = 0;
+                for (var i = 0; i < latlngs.length - 1; i++) d += latlngs[i].distanceTo(latlngs[i + 1]);
+                return d;
+            }
+
+            function fmtDist(m) {
+                return m >= 1000 ? (m / 1000).toFixed(2) + ' km (' + Math.round(m).toLocaleString('id-ID') + ' m)' : Math.round(m) + ' m';
+            }
+            function fmtArea(m2) {
+                return m2 >= 10000 ? (m2 / 10000).toFixed(2) + ' ha (' + Math.round(m2).toLocaleString('id-ID') + ' m²)' : Math.round(m2) + ' m²';
+            }
+
+            function clearShapes() {
+                if (tempShape) { map.removeLayer(tempShape); tempShape = null; }
+                vertexMarkers.forEach(function(m) { map.removeLayer(m); });
+                vertexMarkers = [];
+            }
+
+            function updatePanel() {
+                var box = document.getElementById('measure-result');
+                if (!mode || points.length === 0) { box.innerHTML = '<span style="color:#888;">Klik di peta untuk mulai menandai titik.</span>'; return; }
+                if (mode === 'distance') {
+                    box.innerHTML = points.length < 2
+                        ? '<span style="color:#888;">Klik titik berikutnya…</span>'
+                        : 'Jarak total: <b>' + fmtDist(totalDistance(points)) + '</b>';
+                } else {
+                    box.innerHTML = points.length < 3
+                        ? '<span style="color:#888;">Klik minimal 3 titik untuk membentuk area…</span>'
+                        : 'Luas: <b>' + fmtArea(geodesicArea(points)) + '</b><br>Keliling: <b>' + fmtDist(totalDistance(points.concat([points[0]]))) + '</b>';
+                }
+            }
+
+            function redraw() {
+                if (tempShape) { map.removeLayer(tempShape); tempShape = null; }
+                if (mode === 'distance' && points.length > 1) {
+                    tempShape = L.polyline(points, { color: '#ff6600', weight: 3 }).addTo(map);
+                } else if (mode === 'area' && points.length > 2) {
+                    tempShape = L.polygon(points, { color: '#ff6600', weight: 3, fillColor: '#ff6600', fillOpacity: 0.15 }).addTo(map);
+                } else if (mode === 'area' && points.length === 2) {
+                    tempShape = L.polyline(points, { color: '#ff6600', weight: 3, dashArray: '4,4' }).addTo(map);
+                }
+                updatePanel();
+            }
+
+            function handlePoint(latlng) {
+                points.push(latlng);
+                var vm = L.circleMarker(latlng, { radius: 5, color: '#ff6600', weight: 2, fillColor: '#fff', fillOpacity: 1 }).addTo(map);
+                vertexMarkers.push(vm);
+                redraw();
+            }
+
+            function startMode(m) {
+                clearShapes();
+                points = [];
+                mode = m;
+                map.doubleClickZoom.disable();
+                map.getContainer().classList.add('measuring-active');
+                document.getElementById('measure-panel').style.display = 'block';
+                document.getElementById('measure-title').textContent = m === 'distance' ? '📏 Ukur Jarak' : '📐 Ukur Luas';
+                updatePanel();
+                document.getElementById('btn-measure-distance').classList.toggle('active-mode', m === 'distance');
+                document.getElementById('btn-measure-area').classList.toggle('active-mode', m === 'area');
+            }
+
+            function stopMeasuring() {
+                mode = null;
+                map.doubleClickZoom.enable();
+                map.getContainer().classList.remove('measuring-active');
+                document.getElementById('measure-panel').style.display = 'none';
+                document.getElementById('btn-measure-distance').classList.remove('active-mode');
+                document.getElementById('btn-measure-area').classList.remove('active-mode');
+                clearShapes();
+                points = [];
+            }
+
+            // Cegat klik di fase "capture" (sebelum event sampai ke poligon/layer
+            // di bawahnya), supaya popup layer lain (Aoi, Plant Package, dll)
+            // tidak pernah sempat terpicu selama mode ukur aktif.
+            map.getContainer().addEventListener('click', function(e) {
+                if (!mode) return;
+                if (e.target.closest('.leaflet-control')) return; // biarkan tombol kontrol tetap normal
+                e.stopPropagation();
+                handlePoint(map.mouseEventToLatLng(e));
+            }, true);
+
+
+            window.startMeasureDistance = function() { startMode('distance'); };
+            window.startMeasureArea = function() { startMode('area'); };
+            window.cancelMeasure = stopMeasuring;
+            // "Selesai" mempertahankan bentuk terakhir yang tergambar, hanya berhenti menambah titik baru
+            window.finishMeasure = function() {
+                mode = null;
+                map.doubleClickZoom.enable();
+                map.getContainer().classList.remove('measuring-active');
+                document.getElementById('measure-panel').style.display = 'none';
+                document.getElementById('btn-measure-distance').classList.remove('active-mode');
+                document.getElementById('btn-measure-area').classList.remove('active-mode');
+            };
+
+            // Tombol Ukur Jarak & Luas didaftarkan sebagai Leaflet Control asli
+            // supaya otomatis tersusun rapi di bawah tombol 🏠 dan 📍 (tidak tumpang tindih).
+            var MeasureControl = L.Control.extend({
+                options: { position: 'topleft' },
+                onAdd: function() {
+                    var container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+
+                    var btnDist = L.DomUtil.create('a', 'measure-ctrl-btn', container);
+                    btnDist.id = 'btn-measure-distance';
+                    btnDist.innerHTML = '📏';
+                    btnDist.title = 'Ukur Jarak';
+                    L.DomEvent.on(btnDist, 'click', function(e) { L.DomEvent.stopPropagation(e); window.startMeasureDistance(); });
+
+                    var btnArea = L.DomUtil.create('a', 'measure-ctrl-btn', container);
+                    btnArea.id = 'btn-measure-area';
+                    btnArea.innerHTML = '📐';
+                    btnArea.title = 'Ukur Luas';
+                    L.DomEvent.on(btnArea, 'click', function(e) { L.DomEvent.stopPropagation(e); window.startMeasureArea(); });
+
+                    L.DomEvent.disableClickPropagation(container);
+                    return container;
+                }
+            });
+            map.addControl(new MeasureControl());
+        })();
 
 
         // --- 9. UPDATE KOORDINAT DINAMIS SAAT MOUSE BERGERAK ---
